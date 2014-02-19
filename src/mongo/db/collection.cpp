@@ -2867,6 +2867,16 @@ namespace mongo {
         // add new collection to vector of partitions
         shared_ptr<CollectionData> newPartition;
         newPartition = makeNewPartition(getPartitionName(id), _options);
+        if (numPartitions() > 0) {
+            // if this is not the first partition, we need to make sure the
+            // secondary indexes match
+            for (int i = 0; i < _partitions[0]->nIndexes(); i++) {
+                BSONObj currInfo = _partitions[0]->idx(i).info();
+                // TODO: add some error checking here
+                newPartition->ensureIndex(currInfo);
+            }
+            massert(0, "could not add proper indexes", newPartition->nIndexes() == _partitions[0]->nIndexes());
+        }
         _partitions.push_back(newPartition);
 
         // add data to internal vectors
