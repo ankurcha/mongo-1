@@ -319,6 +319,34 @@ namespace mongo {
         computeIndexKeys();
     }
 
+    
+    void Collection::checkAddIndexOK(const BSONObj &info) {
+        Lock::assertWriteLocked(_ns);
+
+        const StringData &name = info["name"].Stringdata();
+        const BSONObj &keyPattern = info["key"].Obj();
+
+        massert(16922, "dropDups is not supported, we should have stripped it out earlier",
+                       !info["dropDups"].trueValue());
+
+        uassert(12588, "cannot add index with a hot index build in progress",
+                       nIndexesBeingBuilt() > nIndexes());
+
+        uassert(12523, "no index name specified",
+                        info["name"].ok());
+
+        uassert(16753, str::stream() << "index with name " << name << " already exists",
+                       _cd->findIndexByName(name) < 0);
+
+        uassert(16754, str::stream() << "index already exists with diff name " <<
+                       name << " " << keyPattern.toString(),
+                       findIndexByKeyPattern(keyPattern) < 0);
+
+        uassert(12505, str::stream() << "add index fails, too many indexes for " <<
+                       name << " key:" << keyPattern.toString(),
+                       nIndexes() < Collection::NIndexesMax);
+    }
+
     void Collection::computeIndexKeys() {
         _indexedPaths.clear();
 
@@ -1245,7 +1273,12 @@ namespace mongo {
         return true;
     }
 
+    shared_ptr<CollectionIndexer> CollectionBase::newHotIndexer(const BSONObj &info) {
+        return newIndexer(info, true);
+    }
+    
     // Get an indexer over this collection. Implemented in indexer.cpp
+    // This is just a helper function for createIndex and newHotIndexer
     shared_ptr<CollectionIndexer> CollectionBase::newIndexer(const BSONObj &info,
                                                                const bool background) {
         if (background) {
