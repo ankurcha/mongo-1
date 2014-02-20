@@ -2785,18 +2785,20 @@ namespace mongo {
     // called by constructors during initialization. Must be done
     // after meta collection and partitions instantiated
     void PartitionedCollection::createIndexDetails() {
-        shared_ptr<PartitionedIndexDetails> details;
-        BSONObj info = _partitions[0]->idx(0).info();
-        details.reset(
-            new PartitionedIndexDetails(
-                replaceNSField(info, _ns),
-                this,
-                0
-                )
-            );
-        _indexDetails.push_back(details);
+        for (int i = 0; i < nIndexes(); i++) {
+            shared_ptr<PartitionedIndexDetails> details;
+            BSONObj info = _partitions[0]->idx(i).info();
+            details.reset(
+                new PartitionedIndexDetails(
+                    replaceNSField(info, _ns),
+                    this,
+                    i
+                    )
+                );
+            _indexDetails.push_back(details);
+        }
         // initialize _ordering
-        _ordering = Ordering::make(details->keyPattern());
+        _ordering = Ordering::make(_indexDetails[0]->keyPattern());
     }
 
     // helper function for add partition
@@ -2871,9 +2873,16 @@ namespace mongo {
             // if this is not the first partition, we need to make sure the
             // secondary indexes match
             for (int i = 0; i < _partitions[0]->nIndexes(); i++) {
-                BSONObj currInfo = _partitions[0]->idx(i).info();
-                // TODO: add some error checking here
-                newPartition->ensureIndex(currInfo);
+                BSONObj currInfo = _partitions[0]->idx(i).info();                
+                const BSONObj keyPattern = currInfo["key"].Obj();
+                // it's possible the index already exists (e.g. _id index or the pk)
+                const int index = findIndexByKeyPattern(keyPattern);
+                if (index >= 0) {
+                    continue;
+                }
+                // we want to make sure any other secondary index actually works
+                bool ret = newPartition->ensureIndex(currInfo);
+                massert(0, str::stream() << "could not add index " << currInfo, ret);
             }
             massert(0, "could not add proper indexes", newPartition->nIndexes() == _partitions[0]->nIndexes());
         }
